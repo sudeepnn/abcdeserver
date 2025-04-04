@@ -2,12 +2,15 @@ require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const nodemailer = require("nodemailer");
-
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const cors = require("cors");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(express.json());
+app.use(cors());
 
 
 const cloudinary = require('cloudinary').v2;
@@ -18,6 +21,24 @@ cloudinary.config({
   api_secret: process.env.CLOUD_API_SECRET,
 });
 
+const multer = require("multer");
+const { CloudinaryStorage } = require("multer-storage-cloudinary");
+
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "blog_images",
+    allowed_formats: ["jpg", "jpeg", "png", "webp"],
+  },
+});
+
+const upload = multer({ storage });
+
+
+const isValidEmail = (email) => {
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  return emailRegex.test(email);
+};
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
@@ -28,6 +49,19 @@ const db = mongoose.connection;
 db.on("error", console.error.bind(console, "MongoDB connection error:"));
 db.once("open", () => console.log("Connected to MongoDB"));
 
+const rootUserSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true }
+});
+
+rootUserSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
+  this.password = await bcrypt.hash(this.password, 10);
+  next();
+});
+
+const ABCDERootUser = mongoose.model("abcderootuser", rootUserSchema);
+
 // Define User Schema & Model
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
@@ -37,6 +71,7 @@ const OSprojectSchema = new mongoose.Schema({
   title: { type: String, required: true },
   discription: { type: String, required: true },
   github: { type: String, required: true },
+  marker: { type: String, required: true, enum: ["application", "opensource"] }, // Added marker field
 });
 
 const blogSchema = new mongoose.Schema({
@@ -52,14 +87,99 @@ const Blog = mongoose.model("Blog", blogSchema);
 const User = mongoose.model("User", userSchema);
 const Opensource = mongoose.model("Opensource", OSprojectSchema);
 
+
+const verifyToken = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ message: "Access Denied: No token" });
+
+  const token = authHeader.split(" ")[1];
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET );
+    req.user = decoded;
+    next();
+  } catch (err) {
+    res.status(401).json({ message: "Invalid Token" });
+  }
+};
+
+app.post("/api/root/register", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    const existingUser = await ABCDERootUser.findOne({ username });
+    if (existingUser) return res.status(400).json({ message: "Username already exists" });
+
+    const user = new ABCDERootUser({ username, password });
+    await user.save();
+
+    res.status(201).json({ message: "Root user created successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Login Route
+app.post("/api/root/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    const user = await ABCDERootUser.findOne({ username });
+    if (!user) return res.status(400).json({ message: "Invalid credentials" });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET , {
+      expiresIn: "2h"
+    });
+
+    res.status(200).json({ message: "Login successful", token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST API - Store Email in DB
 app.post("/api/users", async (req, res) => {
   try {
     const { email } = req.body;
+    
     if (!email) return res.status(400).json({ error: "Email is required" });
+
+    // Validate Email Format
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: "Invalid email format" });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ error: "Email already exists" });
+    }
 
     const newUser = new User({ email });
     await newUser.save();
+
+    const subject = "Hello, Thanks for Subscribing!";
+const message = `
+Hello,
+
+We're thrilled to welcome you to ABCDE! 🎉
+
+Here's what you can expect:
+✅ Exclusive content tailored for you
+✅ Important updates and offers
+✅ A community of like-minded individuals
+
+If you have any questions, feel free to reach out.
+
+👉 To unsubscribe, click here: [Unsubscribe Link]
+
+Best regards,  
+The ABCDE Team  
+`;
+
+    await sendEmails(email, message, subject);
+
     res.status(201).json({ message: "Email saved successfully!", user: newUser });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -68,8 +188,12 @@ app.post("/api/users", async (req, res) => {
 
 // GET API - Fetch All Emails
 app.get("/api/users", async (req, res) => {
-  const users = await User.find();
-  res.json(users);
+  try {
+    const users = await User.find();
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Function to Send Emails
@@ -81,6 +205,10 @@ const sendEmails = async (emails, message, subject) => {
       pass: process.env.EMAIL_PASS,
     },
   });
+
+  if (!Array.isArray(emails)) {
+    emails = [emails]; // Convert to an array if a single email is passed
+  }
 
   for (let email of emails) {
     let mailOptions = {
@@ -103,7 +231,9 @@ const sendEmails = async (emails, message, subject) => {
 app.post("/api/send-mails", async (req, res) => {
   try {
     const { message, subject } = req.body;
-    if (!message || !subject) return res.status(400).json({ error: "Message and subject are required" });
+    if (!message || !subject) {
+      return res.status(400).json({ error: "Message and subject are required" });
+    }
 
     const users = await User.find();
     const emailList = users.map(user => user.email);
@@ -113,7 +243,6 @@ app.post("/api/send-mails", async (req, res) => {
     }
 
     await sendEmails(emailList, message, subject);
-
     res.json({ message: "Emails sent successfully!" });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -123,18 +252,26 @@ app.post("/api/send-mails", async (req, res) => {
 // Open Source Project - Store Data
 app.post("/api/Osproject", async (req, res) => {
   try {
-    const { title, discription, github } = req.body;
-    if (!title || !discription || !github) {
+    const { title, discription, github, marker } = req.body;
+
+    if (!title || !discription || !github || !marker) {
       return res.status(400).json({ error: "All fields are required" });
     }
 
-    const newOsproject = new Opensource({ title, discription, github });
+    // Ensure marker is either "application" or "opensource"
+    if (!["application", "opensource"].includes(marker)) {
+      return res.status(400).json({ error: "Marker must be 'application' or 'opensource'" });
+    }
+
+    const newOsproject = new Opensource({ title, discription, github, marker });
     await newOsproject.save();
+
     res.status(201).json({ message: "Project saved successfully!", OSproject: newOsproject });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 // Open Source Project - Get All
 app.get("/api/Osproject", async (req, res) => {
@@ -145,6 +282,23 @@ app.get("/api/Osproject", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+app.get("/api/Osproject/marker/:marker", async (req, res) => {
+  try {
+    const { marker } = req.params;
+
+    // Ensure marker is either "application" or "opensource"
+    if (!["application", "opensource"].includes(marker)) {
+      return res.status(400).json({ error: "Invalid marker value. Must be 'application' or 'opensource'" });
+    }
+
+    const projects = await Opensource.find({ marker });
+    res.json(projects);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 app.get("/api/Osproject/:id", async (req, res) => {
   try {
@@ -161,13 +315,18 @@ app.get("/api/Osproject/:id", async (req, res) => {
 });
 
 
+
 app.put("/api/Osproject/:id", async (req, res) => {
   try {
-    const { title, discription, github } = req.body;
+    const { title, discription, github, marker } = req.body;
+
+    if (marker && !["application", "opensource"].includes(marker)) {
+      return res.status(400).json({ error: "Marker must be 'application' or 'opensource'" });
+    }
 
     const updatedProject = await Opensource.findByIdAndUpdate(
       req.params.id,
-      { title, discription, github },
+      { title, discription, github, marker },
       { new: true, runValidators: true }
     );
 
@@ -180,6 +339,7 @@ app.put("/api/Osproject/:id", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 
 app.delete("/api/Osproject/:id", async (req, res) => {
@@ -197,6 +357,7 @@ app.delete("/api/Osproject/:id", async (req, res) => {
 });
 
 
+
 //blogs
 const uploadImageToCloudinary = async (imagePath) => {
   return new Promise((resolve, reject) => {
@@ -211,21 +372,19 @@ const uploadImageToCloudinary = async (imagePath) => {
 };
 
 
-app.post("/api/blogs", async (req, res) => {
+app.post("/api/blogs", upload.single("image"), async (req, res) => {
   try {
-    const { title, description, image, date } = req.body;
+    const { title, description, date } = req.body;
 
-    if (!title || !description || !image || !date) {
-      return res.status(400).json({ error: "All fields are required" });
+    if (!title || !description || !date || !req.file) {
+      return res.status(400).json({ error: "All fields are required, including an image." });
     }
-
-    const uploadedImage = await uploadImageToCloudinary(image);
 
     const newBlog = new Blog({
       title,
       description,
       date: new Date(date), // Convert the date to a Date object
-      imageUrl: uploadedImage.secure_url,
+      imageUrl: req.file.path, // Cloudinary URL
     });
 
     await newBlog.save();
@@ -234,6 +393,7 @@ app.post("/api/blogs", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 app.get("/api/blogs", async (req, res) => {
   try {
