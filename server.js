@@ -394,6 +394,15 @@ app.post("/api/blogs", upload.single("image"), async (req, res) => {
   }
 });
 
+app.get("/api/blogs/latest", async (req, res) => {
+  try {
+    const blogs = await Blog.find().sort({ date: -1 }).limit(3); // sort by date descending and limit to 3
+    res.json(blogs);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 app.get("/api/blogs", async (req, res) => {
   try {
