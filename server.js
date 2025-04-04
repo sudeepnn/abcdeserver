@@ -72,7 +72,7 @@ const OSprojectSchema = new mongoose.Schema({
   discription: { type: String, required: true },
   github: { type: String, required: true },
   marker: { type: String, required: true, enum: ["application", "opensource"] }, // Added marker field
-});
+},{ timestamps: true });
 
 const blogSchema = new mongoose.Schema({
   title: { type: String, required: true },
@@ -276,7 +276,7 @@ app.post("/api/Osproject", async (req, res) => {
 // Open Source Project - Get All
 app.get("/api/Osproject", async (req, res) => {
   try {
-    const projects = await Opensource.find();
+    const projects = await Opensource.find().sort({ createdAt: -1 });
     res.json(projects);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -406,7 +406,7 @@ app.get("/api/blogs/latest", async (req, res) => {
 
 app.get("/api/blogs", async (req, res) => {
   try {
-    const blogs = await Blog.find();
+    const blogs = await Blog.find().sort({ date: -1 });
     res.json(blogs);
   } catch (error) {
     res.status(500).json({ error: error.message });
