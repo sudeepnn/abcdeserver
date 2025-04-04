@@ -292,7 +292,7 @@ app.get("/api/Osproject/marker/:marker", async (req, res) => {
       return res.status(400).json({ error: "Invalid marker value. Must be 'application' or 'opensource'" });
     }
 
-    const projects = await Opensource.find({ marker });
+    const projects = await Opensource.find({ marker }).sort({ createdAt: -1 });
     res.json(projects);
   } catch (error) {
     res.status(500).json({ error: error.message });
