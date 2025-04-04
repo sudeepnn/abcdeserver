@@ -416,15 +416,17 @@ app.get("/api/blogs/:id", async (req, res) => {
   }
 });
 
-app.put("/api/blogs/:id", async (req, res) => {
+app.put("/api/blogs/:id", upload.single("image"), async (req, res) => {
   try {
-    const { title, description, image, date } = req.body;
+    const { title, description, date } = req.body;
+    const updatedFields = {};
 
-    const updatedFields = { title, description, date: new Date(date) }; // Update the date
+    if (title) updatedFields.title = title;
+    if (description) updatedFields.description = description;
+    if (date) updatedFields.date = new Date(date);
 
-    if (image) {
-      const uploadedImage = await uploadImageToCloudinary(image);
-      updatedFields.imageUrl = uploadedImage.secure_url;
+    if (req.file) {
+      updatedFields.imageUrl = req.file.path; // Already uploaded via Cloudinary
     }
 
     const updatedBlog = await Blog.findByIdAndUpdate(
@@ -442,6 +444,7 @@ app.put("/api/blogs/:id", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 app.delete("/api/blogs/:id", async (req, res) => {
   try {
