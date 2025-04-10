@@ -79,6 +79,7 @@ const blogSchema = new mongoose.Schema({
   imageUrl: { type: String, required: true },
   date: { type: Date, required:true},
   description: { type: String, required: true },
+  videoUrl: { type: String },
 });
 
 const Blog = mongoose.model("Blog", blogSchema);
@@ -374,7 +375,7 @@ const uploadImageToCloudinary = async (imagePath) => {
 
 app.post("/api/blogs", upload.single("image"), async (req, res) => {
   try {
-    const { title, description, date } = req.body;
+    const { title, description, date, videoUrl } = req.body;
 
     if (!title || !description || !date || !req.file) {
       return res.status(400).json({ error: "All fields are required, including an image." });
@@ -383,8 +384,9 @@ app.post("/api/blogs", upload.single("image"), async (req, res) => {
     const newBlog = new Blog({
       title,
       description,
-      date: new Date(date), // Convert the date to a Date object
-      imageUrl: req.file.path, // Cloudinary URL
+      date: new Date(date),
+      imageUrl: req.file.path,
+      videoUrl: videoUrl || null // Include if provided
     });
 
     await newBlog.save();
@@ -393,6 +395,7 @@ app.post("/api/blogs", upload.single("image"), async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 app.get("/api/blogs/latest", async (req, res) => {
   try {
@@ -427,15 +430,16 @@ app.get("/api/blogs/:id", async (req, res) => {
 
 app.put("/api/blogs/:id", upload.single("image"), async (req, res) => {
   try {
-    const { title, description, date } = req.body;
+    const { title, description, date, videoUrl } = req.body;
     const updatedFields = {};
 
     if (title) updatedFields.title = title;
     if (description) updatedFields.description = description;
     if (date) updatedFields.date = new Date(date);
+    if (videoUrl !== undefined) updatedFields.videoUrl = videoUrl;
 
     if (req.file) {
-      updatedFields.imageUrl = req.file.path; // Already uploaded via Cloudinary
+      updatedFields.imageUrl = req.file.path;
     }
 
     const updatedBlog = await Blog.findByIdAndUpdate(
@@ -453,6 +457,7 @@ app.put("/api/blogs/:id", upload.single("image"), async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 
 app.delete("/api/blogs/:id", async (req, res) => {
