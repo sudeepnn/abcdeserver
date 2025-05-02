@@ -82,6 +82,22 @@ const blogSchema = new mongoose.Schema({
   videoUrl: { type: String },
 });
 
+const blogVisitSchema = new mongoose.Schema({
+  username: { type: String, required: true },
+  email:    { type: String, required: true },
+  designation: {
+    type: String,
+    enum: ['Student', 'Professor', 'Employee', 'Other'],
+    required: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+const BlogVisit = mongoose.model('BlogVisit', blogVisitSchema);
+
 const Blog = mongoose.model("Blog", blogSchema);
 
 
@@ -172,8 +188,6 @@ Here's what you can expect:
 ✅ A community of like-minded individuals
 
 If you have any questions, feel free to reach out.
-
-👉 To unsubscribe, click here: [Unsubscribe Link]
 
 Best regards,  
 The ABCDE Team  
@@ -471,6 +485,76 @@ app.delete("/api/blogs/:id", async (req, res) => {
     res.json({ message: "Blog deleted successfully!" });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+//blog visiting update
+app.post('/api/blogvisits', async (req, res) => {
+  try {
+    const blogVisit = new BlogVisit(req.body);
+    const savedVisit = await blogVisit.save();
+    res.status(201).json(savedVisit);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// GET: Get all blog visits
+app.get('/api/blogvisits', async (req, res) => {
+  try {
+    const visits = await BlogVisit.find().sort({ createdAt: -1 });
+    res.status(200).json(visits);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/blogvisits/by-month', async (req, res) => {
+  try {
+    const results = await BlogVisit.aggregate([
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } },
+          visits: { $push: "$$ROOT" }
+        }
+      },
+      {
+        $sort: { _id: -1 }
+      }
+    ]);
+
+    // Format month as readable string
+    const formattedResults = results.map(entry => {
+      const [year, month] = entry._id.split("-");
+      const monthNames = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+      ];
+      return {
+        month: `${monthNames[parseInt(month) - 1]} ${year}`,
+        visits: entry.visits
+      };
+    });
+
+    res.status(200).json(formattedResults);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/blogvisits/designation-count', async (req, res) => {
+  try {
+    const results = await BlogVisit.aggregate([
+      {
+        $group: {
+          _id: "$designation",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    res.status(200).json(results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
