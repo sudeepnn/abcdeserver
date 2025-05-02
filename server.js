@@ -1,5 +1,6 @@
 require("dotenv").config();
 const express = require("express");
+const ExcelJS = require('exceljs');
 const mongoose = require("mongoose");
 const nodemailer = require("nodemailer");
 const bcrypt = require("bcryptjs");
@@ -558,6 +559,48 @@ app.get('/api/blogvisits/designation-count', async (req, res) => {
   }
 });
 
+app.get('/api/blogvisits/export', async (req, res) => {
+  try {
+    const visits = await BlogVisit.find().sort({ createdAt: -1 });
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Blog Visits');
+
+    // Define columns
+    worksheet.columns = [
+      { header: 'Username', key: 'username', width: 20 },
+      { header: 'Email', key: 'email', width: 30 },
+      { header: 'Designation', key: 'designation', width: 15 },
+      { header: 'Date', key: 'createdAt', width: 25 }
+    ];
+
+    // Add rows
+    visits.forEach(visit => {
+      worksheet.addRow({
+        username: visit.username,
+        email: visit.email,
+        designation: visit.designation,
+        createdAt: new Date(visit.createdAt).toLocaleString()
+      });
+    });
+
+    // Set response headers
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=blogvisits.xlsx'
+    );
+
+    // Write to response
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to generate Excel file' });
+  }
+});
 
 // Start the server
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
