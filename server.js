@@ -157,6 +157,19 @@ app.post("/api/root/login", async (req, res) => {
   }
 });
 
+app.get("/api/root/user/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await ABCDERootUser.findById(id).select("-password"); // exclude password
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    res.status(200).json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST API - Store Email in DB
 app.post("/api/users", async (req, res) => {
   try {
