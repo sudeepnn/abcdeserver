@@ -239,6 +239,8 @@ const sendEmails = async (emails, message, subject) => {
     emails = [emails]; // Convert to an array if a single email is passed
   }
 
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
   for (let email of emails) {
     let mailOptions = {
       from: process.env.EMAIL_USER,
@@ -253,8 +255,12 @@ const sendEmails = async (emails, message, subject) => {
     } catch (error) {
       console.error(`Failed to send email to ${email}:`, error.message);
     }
+
+  
+    await sleep(4000);
   }
 };
+
 
 // API to Send Emails
 app.post("/api/send-mails", async (req, res) => {
